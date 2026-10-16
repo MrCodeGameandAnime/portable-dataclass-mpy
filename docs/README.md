@@ -175,6 +175,12 @@ Dotted test-module invocation is not supported. Embedded checks survive optimiza
 These results predate the repository layout changes. Current packaging must be
 rebuilt and verified before publication.
 
+## Community
+
+- [Contributing](CONTRIBUTING.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Security policy and private reporting](SECURITY.md)
+
 ## More information
 
 - [Manifest format](https://github.com/MrCodeGameAndAnime/portable-dataclass-mpy/blob/main/docs/manifest-format.md)
