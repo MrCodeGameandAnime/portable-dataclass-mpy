@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.release-tools/
+release/
+
+# Local release packages and verification records
+/root/release/
+/root/_release_docs/

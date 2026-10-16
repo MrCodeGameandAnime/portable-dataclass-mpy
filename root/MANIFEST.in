@@ -1,0 +1,13 @@
+include pyproject.toml MANIFEST.in _build_backend.py
+recursive-include _release_docs *.md
+recursive-include src/portable_dataclass_metadata *.py
+recursive-include tests *.py
+recursive-include examples/basic *.py
+global-exclude *.py[cod]
+global-exclude *~
+prune .git
+prune .release-tools
+prune dist
+prune build
+prune release
+prune tests/__pycache__

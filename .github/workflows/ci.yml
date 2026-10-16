@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: CPython 3.12 / MicroPython 1.29.0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential pkg-config libffi-dev
+          python -m pip install build twine
+
+      - name: Build MicroPython Unix port
+        run: |
+          git clone --depth 1 --branch v1.29.0 https://github.com/micropython/micropython.git "$RUNNER_TEMP/micropython"
+          make -C "$RUNNER_TEMP/micropython/mpy-cross" -j2
+          make -C "$RUNNER_TEMP/micropython/ports/unix" submodules
+          make -C "$RUNNER_TEMP/micropython/ports/unix" -j2
+          runtime="$RUNNER_TEMP/micropython/ports/unix/build-standard/micropython"
+          "$runtime" -c 'import sys; print(sys.implementation); print(sys.platform); assert sys.implementation.name == "micropython"; assert sys.implementation.version[:3] == (1, 29, 0); assert sys.platform == "linux"'
+          echo "MICROPYTHON_EXECUTABLE=$runtime" >> "$GITHUB_ENV"
+
+      - name: Build and validate distributions
+        run: |
+          python -m build root --outdir root/dist
+          python -m twine check --strict root/dist/*.whl root/dist/*.tar.gz
+
+      - name: Check packaged documents and extract source archive
+        run: |
+          python - <<'PY'
+          import email
+          import email.utils
+          import hashlib
+          import os
+          from pathlib import Path
+          import tarfile
+          import tomllib
+          import zipfile
+
+          project = Path.cwd()
+          config = tomllib.loads((project / "root/pyproject.toml").read_text())["project"]
+          dist = project / "root/dist"
+          wheel, = dist.glob("*.whl")
+          archive, = dist.glob("*.tar.gz")
+          documents = {"_release_docs/LICENSE.md": project / "LICENSE.md"}
+          documents.update({"_release_docs/docs/" + p.relative_to(project / "docs").as_posix(): p
+                            for p in (project / "docs").rglob("*.md")})
+          with zipfile.ZipFile(wheel) as package:
+              metadata_path, = (n for n in package.namelist() if n.endswith(".dist-info/METADATA"))
+              metadata = email.message_from_bytes(package.read(metadata_path))
+              if metadata["Version"] != config["version"]:
+                  raise RuntimeError("Wheel version mismatch")
+              if metadata.get_payload().replace("\r\n", "\n").strip() != (project / "docs/README.md").read_text().strip():
+                  raise RuntimeError("Wheel README mismatch")
+              maintainer = config["maintainers"][0]
+              if (maintainer["name"], maintainer["email"]) not in email.utils.getaddresses(metadata.get_all("Maintainer-email", [])):
+                  raise RuntimeError("Wheel maintainer mismatch")
+              licenses = [n for n in package.namelist() if n.endswith("/LICENSE.md")]
+              if not licenses or any(package.read(n) != (project / "LICENSE.md").read_bytes() for n in licenses):
+                  raise RuntimeError("Wheel license mismatch")
+          destination = project / "root/release/ci/source"
+          destination.mkdir(parents=True)
+          with tarfile.open(archive) as package:
+              prefix = package.getnames()[0].split("/")[0]
+              for name, source in documents.items():
+                  if package.extractfile(prefix + "/" + name).read() != source.read_bytes():
+                      raise RuntimeError("Source archive document mismatch: " + name)
+              package.extractall(destination, filter="data")
+          (dist / "SHA256SUMS").write_text("".join(
+              hashlib.sha256(p.read_bytes()).hexdigest() + "  " + p.name + "\n"
+              for p in (wheel, archive)))
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write("LIBRARY_WHEEL=" + str(wheel) + "\n")
+              output.write("SDIST_ROOT=" + str(destination / prefix) + "\n")
+          PY
+
+      - name: Verify checkout normally and with optimization
+        run: |
+          for optimization in 0 1; do
+            PYTHONOPTIMIZE="$optimization" python -B root/tests/verify_release.py 2>&1 | tee "root/release/ci/checkout-$optimization.log"
+          done
+
+      - name: Rebuild wheel from extracted source archive
+        run: |
+          python -m build "$SDIST_ROOT" --wheel --outdir root/release/ci/rebuilt-wheel
+          python -m twine check --strict root/release/ci/rebuilt-wheel/*.whl
+
+      - name: Verify source archive normally and with optimization
+        run: |
+          rebuilt_wheels=("$GITHUB_WORKSPACE"/root/release/ci/rebuilt-wheel/*.whl)
+          export LIBRARY_WHEEL="${rebuilt_wheels[0]}"
+          for optimization in 0 1; do
+            PYTHONOPTIMIZE="$optimization" python -B "$SDIST_ROOT/tests/verify_release.py" 2>&1 | tee "root/release/ci/sdist-$optimization.log"
+          done
+
+      - name: Save verified distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-dataclass-mpy-distributions
+          path: root/dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Save verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-logs
+          path: root/release/ci/*.log
+          if-no-files-found: ignore
+          retention-days: 14

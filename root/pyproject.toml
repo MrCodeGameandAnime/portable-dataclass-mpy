@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "_build_backend"
+backend-path = ["."]
+
+[project]
+name = "portable-dataclass-mpy"
+version = "0.1.0"
+description = "Host-generated dataclass metadata and a MicroPython dataclasses overlay"
+readme = "_release_docs/docs/README.md"
+license = {file = "_release_docs/LICENSE.md"}
+requires-python = ">=3.8"
+authors = [{name = "MrCodeGameAndAnime"}]
+maintainers = [{name = "404 Builds", email = "support@404builds.com"}]
+keywords = ["micropython", "dataclasses", "metadata", "embedded"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Repository = "https://github.com/MrCodeGameAndAnime/portable-dataclass-mpy"
+Issues = "https://github.com/MrCodeGameAndAnime/portable-dataclass-mpy/issues"
+Documentation = "https://github.com/MrCodeGameAndAnime/portable-dataclass-mpy/blob/main/docs/README.md"
+
+[project.scripts]
+portable-dataclass-metadata = "portable_dataclass_metadata.generator:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools]
+license-files = ["_release_docs/LICENSE.md"]
+
+[tool.setuptools.package-data]
+portable_dataclass_metadata = ["micropython/*.py"]
